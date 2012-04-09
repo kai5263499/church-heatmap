@@ -1,0 +1,7 @@
+server1:
+  host: "mongoserver"
+  port: 27047
+  db: mongodb
+  points_collection: churches_collection
+  user: mongouser
+  pass: mongopass

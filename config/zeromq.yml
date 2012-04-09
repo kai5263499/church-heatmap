@@ -1,0 +1,1 @@
+bindto: "ipc:///tmp/church_heatmap_tile_generator.sock"

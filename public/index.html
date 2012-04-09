@@ -1,0 +1,272 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+    <head>
+        <title>HeatMap</title>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+        <style type="text/css">
+            html, body{
+                height: 100%;
+                overflow: hidden;
+            }
+            body{
+                height: 96%;
+                margin: 10px 10px 10px 10px;
+            }
+            img{
+                border:0;
+                vertical-align:bottom;
+            }
+            .sechdr {
+                font-weight: bold;
+            }
+            #map_container{
+                width:100%;
+                height:100%;
+                border-width: 0px;
+                background-color:white;
+            }
+            #status, #mapurl, #mapdata, #legend {
+                background-color: #eeeeee;
+                padding: 3px 5px 3px 5px;
+                opacity: .9;
+            }
+            #mapdata_dialog {
+                /*text-align: center;*/
+            }
+        </style>
+    </head>
+    <body>
+		<div id="map_container" style="width: 100%; height: 100%;"></div>
+        <div id="pointinfo" title="More info"></div>
+        <div id="mapinfo" title="Map summary"></div>
+        <button id="toggledots_btn">Info dots</button>
+        <button id="summary_btn">Summary</button>
+        <img src="images/corner_topleft.png" class='corner' alt="" width="15" height="15" style="position:absolute;top:0;left:0;z-index:10000"/>
+        <img src="images/corner_topright.png" class='corner' alt="" width="15" height="15" style="position:absolute;top:0;right:0;z-index:10000"/>
+        <img src="images/corner_bottomleft.png" class='corner' alt="" width="15" height="15" style="position:absolute;bottom:0;left:0;z-index:10000"/>
+        <img src="images/corner_bottomright.png" class='corner' alt="" width="15" height="15" style="position:absolute;bottom:0;right:0;z-index:10000"/>
+        <div id="status">
+            Status:&nbsp; <span id="log"> <img alt="progess bar" src="images/progress_bar.gif" width="150" height="16"/></span>
+        </div>
+        <script type="text/javascript" src="http://www.google.com/jsapi?autoload=%7B%22modules%22%3A%5B%7B%22name%22%3A%22maps%22%2Cversion%3A3.4%2Cother_params%3A%22sensor%3Dfalse%22%7D%2C%7B%22name%22%3A%22jquery%22%2C%22version%22%3A%221.4.4%22%7D%2C%7B%22name%22%3A%22jqueryui%22%2C%22version%22%3A%221.8.7%22%7D]}"></script>
+	
+        <link rel="stylesheet" type="text/css" href="http://ajax.googleapis.com/ajax/libs/jqueryui/1.8.7/themes/smoothness/jquery-ui.css" />
+        <script src="socket.io/socket.io.js"></script>
+        <script src="javascripts/RaphaelMapType.js"></script>
+        <script src="javascripts/HeatMapType.js"></script>
+        <script src="javascripts/HeatMapUtils.js"></script>
+        <script src="javascripts/GoogleMapUtils.js"></script>
+        <script src="javascripts/raphael-min.js"></script>
+        <script src="javascripts/RaphaelOverlay2.js"></script>
+        <script type="text/javascript">
+            //<![CDATA[
+            //Google Map API v3
+			var exports = {};
+			
+            var googleMap = null;
+            var previousPos = null;
+            var heatmapOverlay;
+            var raphaelOverlay = null;
+            var socket = null;
+
+			var setupSockets = function() {
+				socket = new io.Socket(null, {port: 80, rememberTransport: true});
+				socket.connect();
+				socket.on('message', handleSockMsg, this);
+			}
+
+			var handleSockMsg = function(obj) {
+				//console.log(obj,"handleSockMsg");
+				if(!obj) return;
+				
+				if(obj.items) drawDots(obj);
+				else if(obj.total) drawSummary(obj);
+			}
+
+			var drawSummary = function(obj) {
+			}
+
+			var drawDots = function(obj) {
+				//console.log(obj,"drawDots");
+				
+				if(!obj || !obj.items || obj.items.length < 1 || !obj.items[0].loc.lat) return;
+				
+				zoom = googleMap.getZoom();
+				
+				for(i=0; i < obj.items.length; i++) {
+					var latLng = new google.maps.LatLng(obj.items[i].loc.lat,obj.items[i].loc.lon);
+					
+					var point = raphaelOverlay.fromLatLngToCanvasPixel(latLng);
+					
+					//console.log("drawing point", point, latLng, obj.items[i].loc);
+					
+					var circle = raphaelOverlay.canvas
+						.circle(point.x,point.y,1)
+						.animate({
+							"scale":[10,10],
+							"fill": "#00f"
+						},1000,'<>')
+						.click(dot_click)
+						.mouseover(dot_mouseover)
+						.mouseout(dot_mouseout);
+					
+					circle.data = obj.items[i];
+				}
+			}
+
+			var dot_click = function(event) {
+				$('#pointinfo').html(
+					'<span class="sechdr">Title:</span> '+this.data.Title+'<br />'+
+					'<span class="sechdr">Address:</span> '+this.data.Address+'<br />'+
+					'<span class="sechdr">City:</span> '+this.data.City+'<br />'+
+					'<span class="sechdr">State:</span> '+this.data.State+'<br />'+
+					'<span class="sechdr">Lat/Long:</span> '+this.data.loc.lat+'/'+this.data.loc.lon                
+					).dialog('open');
+			}; 
+
+			var dot_mouseover = function (event) {
+				this.stop().animate({
+					'fill':'#0f0',
+					'scale':[20.0,20.0]
+					},750,'bounce');
+			}
+
+			var dot_mouseout = function (event) {
+				this.stop().animate({
+					'fill':'#00f',
+					'scale':[10.0,10.0]
+					},500,'<');
+			}
+
+            var addControls = function() {
+                googleMap.controls[google.maps.ControlPosition.TOP_LEFT].push($("#status").get(0));
+                googleMap.controls[google.maps.ControlPosition.BOTTOM_CENTER].push($("#toggledots_btn").get(0));
+                //googleMap.controls[google.maps.ControlPosition.TOP_CENTER].push($("#summary_btn").get(0));
+            };
+
+            var addHeatOverlay = function() {
+				heatmapOverlay = new HeatMapType({
+					size:new google.maps.Size(256, 256), 
+					usesockets:true,
+					browser:$.browser
+				});
+				
+                googleMap.overlayMapTypes.insertAt(0, heatmapOverlay);
+            };
+
+			var refreshDotsOverlay = function() {
+				if(!raphaelOverlay) return;
+				raphaelOverlay.canvas.clear();
+				
+				var position = raphaelOverlay.fromLatLngToCanvasPixel(googleMap.getCenter());
+				
+				var circle = raphaelOverlay.canvas
+					.circle(position.x,position.y,1)
+					.animate({
+						"scale":[10,10],
+						"fill": "#00f"
+					},3000,'<>')
+					.click(function(event) {
+						$('#pointinfo').html(
+						'<span class="sechdr">Created by:</span> <a href="http://reasontostand.org">Wes Widner</a><br />'
+						).dialog('open');
+					})
+					.mouseover(dot_mouseover)
+					.mouseout(dot_mouseout);
+					
+				socket.send({"bounds":googleMap.getBounds(), "zoom":googleMap.getZoom(),"browser":$.browser});
+			}
+
+            var infowindow = new google.maps.InfoWindow();
+
+            $(function($){//Called when page is loaded
+                $('#pointinfo').dialog({ show:'zoom', hide: 'puff',autoOpen: false });
+                $('#mapinfo').dialog({ show:'zoom', hide: 'puff',autoOpen: false });
+                
+                $("button").button();
+                
+                var dotson = false;
+                $('#toggledots_btn').click(function() {
+					if(!dotson) {
+						refreshDotsOverlay();
+					} else {
+						raphaelOverlay.canvas.clear();
+					}
+					
+					dotson = !dotson;
+				});
+				
+				$('#summary_btn').click(function() {
+					$('#mapinfo').html(
+						'<img alt="progess bar" src="images/progress_bar.gif" width="150" height="16"/>'                
+					).dialog('open');
+				});
+				
+                googleMap = new google.maps.Map(document.getElementById("map_container"), {
+                    zoom: 10,
+                    center: new google.maps.LatLng(33.75346,-84.38593),
+                    mapTypeId: "hybrid"});
+                //Append rounded corners to map container
+                $('#map_container').append($('.corner'));
+
+                addControls();
+				
+                google.maps.event.addListener(googleMap, "center_changed", function(event){
+					if(raphaelOverlay) {
+						dotson = false;
+						raphaelOverlay.canvas.clear();
+                    }
+					google.maps.event.trigger(googleMap, "mousemove", previousPos);
+				});
+
+                google.maps.event.addListener(googleMap, "maptypeid_changed", function(event){
+                });
+
+                google.maps.event.addListener(googleMap, "zoom_changed", function(event){
+					if(raphaelOverlay) {
+						dotson = false;
+						raphaelOverlay.canvas.clear();
+                    }
+                    google.maps.event.trigger(googleMap, "mousemove", previousPos);
+                });//onzoomend
+				
+                //Add a listener when mouse moves
+                google.maps.event.addListener(googleMap, "mousemove", function(event){
+                    var latLng = event.latLng;
+                    var xy = googleMap.getProjection().fromLatLngToPoint(latLng);
+                    var ratio = Math.pow(2,googleMap.getZoom());
+
+                    $("#log").html("Zoom: " + googleMap.getZoom() + " WGS84:(" + latLng.lat().toFixed(5) + ", " + latLng.lng().toFixed(5) + ") Px:(" + Math.floor(xy.x * ratio)  + "," + Math.floor(xy.y *ratio) + ")");
+                    previousPos = event;
+                });//onmouseover
+
+                //Add a listener when mouse leaves the map area
+                google.maps.event.addListener(googleMap, "mouseout", function(event){
+                    $("#log").html("");
+                });//onmouseout
+
+                google.maps.event.addListener(googleMap, "tilesloaded", function(event){
+                    if(heatmapOverlay) heatmapOverlay.initialload = false;
+                });//onmouseout
+
+                addHeatOverlay();
+                setupSockets();
+				raphaelOverlay = new RaphaelOverlay(googleMap);
+                
+                $("#log").html("Map loaded!");
+            });//onload
+            
+            var _gaq = _gaq || [];
+			  _gaq.push(['_setAccount', 'UA-620992-13']);
+			  _gaq.push(['_trackPageview']);
+
+			  (function() {
+				var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+				ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+				var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+			  })();
+            
+            //]]>
+        </script>
+    </body>
+</html>
